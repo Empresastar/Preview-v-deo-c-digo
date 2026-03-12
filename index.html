@@ -2,53 +2,68 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>CONVIDADO - ASCII</title>
+    <title>DB Server P2P</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
-        body { background: #000; margin: 0; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
-        canvas { width: 100vw; height: 100vh; object-fit: contain; }
+        body { font-family: 'Courier New', monospace; background: #000; color: #0f0; padding: 15px; margin: 0; }
+        #log { border: 1px solid #0f0; height: 300px; overflow-y: auto; padding: 10px; background: #050505; border-radius: 5px; }
+        .status { color: #fff; margin-bottom: 10px; }
     </style>
 </head>
 <body>
-    <canvas id="ascii-canvas"></canvas>
+    <h4 style="margin:5px 0">DB - MEMÓRIA PERMANENTE</h4>
+    <div class="status" id="status">Iniciando servidor...</div>
+    <div id="log">Lendo dados do disco...</div>
+
     <script>
-        const peer = new Peer();
-        const canvas = document.getElementById('ascii-canvas');
-        const ctx = canvas.getContext('2d', { alpha: false });
-        const charset = "0123456789ABCDEF#!?@$";
+        // ID Fixo para os clientes encontrarem o "servidor"
+        const ID_SALA = "sala_secreta_p2p_2026_xyz";
+        const peer = new Peer(ID_SALA);
+        let conexoes = [];
+        
+        // Carrega dados salvos anteriormente no navegador
+        let historicoDePosts = JSON.parse(localStorage.getItem('meu_insta_p2p')) || [];
 
-        peer.on('open', () => {
-            const conn = peer.connect('sala-p2p-ascii-total', { reliable: false });
-            const img = new Image();
+        peer.on('open', (id) => {
+            document.getElementById('status').innerText = "Status: ONLINE (ID: " + id + ")";
+            log(`Banco carregado. Posts em memória: ${historicoDePosts.length}`);
+        });
+
+        peer.on('connection', (conn) => {
+            conexoes.push(conn);
+            log(`Novo dispositivo conectado.`);
+
+            // Quando conectar, envia o histórico existente para o novo cliente
+            conn.on('open', () => {
+                if(historicoDePosts.length > 0) {
+                    conn.send({ tipo: "historico", posts: historicoDePosts });
+                }
+            });
+
+            // Escuta novos posts vindo do Admin
             conn.on('data', (data) => {
-                img.onload = () => {
-                    const cellSize = 9; // Tamanho das letras
-                    canvas.width = img.width * cellSize;
-                    canvas.height = img.height * cellSize;
+                if (data.tipo === "post") {
+                    historicoDePosts.push(data);
+                    localStorage.setItem('meu_insta_p2p', JSON.stringify(historicoDePosts));
+                    log("Novo post recebido e sincronizado.");
                     
-                    const tC = document.createElement('canvas');
-                    tC.width = img.width; tC.height = img.height;
-                    const tCtx = tC.getContext('2d');
-                    tCtx.drawImage(img, 0, 0);
-                    const pix = tCtx.getImageData(0, 0, img.width, img.height).data;
-
-                    ctx.fillStyle = "black";
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                    ctx.font = "bold " + cellSize + "px monospace";
-
-                    for (let y = 0; y < img.height; y++) {
-                        for (let x = 0; x < img.width; x++) {
-                            const i = (y * img.width + x) * 4;
-                            const char = charset[Math.floor(Math.random() * charset.length)];
-                            ctx.fillStyle = `rgb(${pix[i]},${pix[i+1]},${pix[i+2]})`;
-                            ctx.fillText(char, x * cellSize, y * cellSize);
-                        }
-                    }
-                };
-                img.src = data;
+                    // Repercute o post para todos os outros conectados
+                    conexoes.forEach(c => { if(c.open) c.send(data); });
+                } else if (data.tipo === "limpar") {
+                    historicoDePosts = [];
+                    localStorage.removeItem('meu_insta_p2p');
+                    log("Banco de dados resetado.");
+                    conexoes.forEach(c => { if(c.open) c.send(data); });
+                }
             });
         });
+
+        function log(m) {
+            const l = document.getElementById('log');
+            const agora = new Date().toLocaleTimeString();
+            l.innerHTML += `<div>[${agora}] > ${m}</div>`;
+            l.scrollTop = l.scrollHeight;
+        }
     </script>
 </body>
 </html>
-              
